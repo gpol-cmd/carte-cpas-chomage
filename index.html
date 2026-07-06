@@ -258,13 +258,23 @@ Promise.all([
   d3.json(GEOJSON_URL),
   d3.text(CSV_URL)
 ]).then(([geo, csvText]) => {
-  init(geo, parseCSV(csvText));
+  try {
+    init(geo, parseCSV(csvText));
+  } catch(err){
+    showError('Erreur au rendu de la carte : ' + (err && err.message ? err.message : err));
+    console.error(err);
+  }
 }).catch(err => {
-  document.getElementById('loading').textContent =
-    "Impossible de charger les données de la carte. Vérifiez que les fichiers " +
-    "communes_belgique.geojson et taux_cpas.csv sont présents à côté de cette page.";
+  showError("Impossible de charger les données. Vérifiez que communes_belgique.geojson " +
+            "et taux_cpas.csv sont bien présents à côté de cette page. (" +
+            (err && err.message ? err.message : err) + ")");
   console.error(err);
 });
+
+function showError(msg){
+  const l = document.getElementById('loading');
+  if(l){ l.style.display='block'; l.textContent = msg; }
+}
 
 /* Parse manuel du CSV : NIS (texte), Taux (fraction, décimale virgule, « n/a » possible) */
 function parseCSV(text){
@@ -300,8 +310,18 @@ function init(geo, data){
   VBW = 1000;
   VBH = 620;                      // ratio Belgique ~0.62
 
-  projection = d3.geoMercator().fitExtent([[10,10],[VBW-10,VBH-10]], geo);
-  path = d3.geoPath(projection);
+  projection = d3.geoMercator();
+  projection.fitExtent([[10,10],[VBW-10,VBH-10]], geo);
+
+  /* Garde-fou : si fitExtent n'a pas pu calculer une échelle valide
+     (par ex. géométrie chargée mais dégénérée), on ne dessine pas un tracé géant. */
+  const sc = projection.scale();
+  if(!isFinite(sc) || sc <= 0){
+    showError('La projection n’a pas pu être calculée (échelle invalide). Le fichier GeoJSON est peut-être incomplet.');
+    return;
+  }
+
+  path = d3.geoPath().projection(projection);
 
   svg = d3.select(shell).append('svg')
     .attr('id','map')
