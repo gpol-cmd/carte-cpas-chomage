@@ -107,7 +107,7 @@
 
   /* ---------- Carte ---------- */
   .map-shell{position:relative;margin:10px 0 0}
-  #map{width:100%;display:block}
+  #map{width:100%;height:auto;display:block;max-height:78vh}
   #map path{stroke:var(--stroke);stroke-width:.4px;stroke-linejoin:round;cursor:pointer;
             transition:opacity .12s ease}
   #map path.nodata{fill:var(--nodata);stroke:var(--nodata-stroke)}
@@ -285,24 +285,31 @@ function parseCSV(text){
 
 /* ---------- Construction de la carte ---------- */
 let svg, gMap, projection, path, zoom, features, tip;
-let width, height;
+let VBW, VBH;   // dimensions logiques (viewBox), fixes — indépendantes des pixels
 
 function init(geo, data){
   features = geo.features;
   document.getElementById('loading').style.display = 'none';
 
   const shell = document.getElementById('shell');
-  width  = shell.clientWidth;
-  height = Math.round(width * 0.62);   // ratio adapté à la Belgique
 
-  projection = d3.geoMercator().fitSize([width, height], geo);
+  /* Système de coordonnées LOGIQUE fixe : la projection s'ajuste à cette taille,
+     et le SVG est ensuite mis à l'échelle en CSS (width:100%) via le viewBox.
+     Ainsi le rendu ne dépend jamais de la largeur pixel réelle au moment du chargement
+     (qui pouvait valoir 0 et produisait un tracé géant). */
+  VBW = 1000;
+  VBH = 620;                      // ratio Belgique ~0.62
+
+  projection = d3.geoMercator().fitExtent([[10,10],[VBW-10,VBH-10]], geo);
   path = d3.geoPath(projection);
 
   svg = d3.select(shell).append('svg')
     .attr('id','map')
-    .attr('viewBox', `0 0 ${width} ${height}`)
-    .attr('width','100%')
-    .attr('height', height)
+    .attr('viewBox', `0 0 ${VBW} ${VBH}`)
+    .attr('preserveAspectRatio','xMidYMid meet')
+    .style('width','100%')
+    .style('height','auto')
+    .style('display','block')
     .attr('role','application')
     .attr('aria-label','Carte des communes belges colorées selon le taux de recours au CPAS après exclusion du chômage');
 
@@ -331,7 +338,6 @@ function init(geo, data){
       .attr('role','button')
       .attr('aria-label', d => ariaLabel(d))
       .on('mouseover', (e,d) => { if(!isTouch){ highlight(d); showTip(d); } })
-      .on('mousemove', (e,d) => { if(!isTouch) positionTip(d); })
       .on('mouseout',  ()   => { if(!isTouch){ clearHighlight(); hideTip(); } })
       .on('click',     (e,d) => { if(isTouch){ highlight(d); showTip(d); } })
       .on('focus',     (e,d) => { highlight(d); showTip(d); })
@@ -340,8 +346,8 @@ function init(geo, data){
   /* Zoom / pan */
   zoom = d3.zoom()
     .scaleExtent([1, 12])
-    .translateExtent([[0,0],[width,height]])
-    .on('zoom', (e) => gMap.attr('transform', e.transform));
+    .translateExtent([[0,0],[VBW,VBH]])
+    .on('zoom', (e) => { gMap.attr('transform', e.transform); if(currentFeature) positionTip(currentFeature); });
   svg.call(zoom);
   if(isTouch) svg.on('wheel.zoom', null);   // ne pas capter le scroll de l'article sur mobile
 
@@ -353,7 +359,9 @@ function init(geo, data){
   buildSearch();
   buildSrTable();
 
-  window.addEventListener('resize', debounce(onResize, 200));
+  /* Le viewBox rend le SVG responsive automatiquement ; on masque juste la fiche
+     pendant un redimensionnement pour éviter qu'elle reste mal positionnée. */
+  window.addEventListener('resize', () => { clearHighlight(); hideTip(); });
 }
 
 /* ---------- Fiche : contenu & position ---------- */
@@ -385,12 +393,20 @@ function showTip(d){
   positionTip(d);
 }
 function positionTip(d){
-  const [cx, cy] = path.centroid(d);
+  const [cx, cy] = path.centroid(d);              // coords logiques (viewBox)
   const t = d3.zoomTransform(svg.node());
+  const lx = t.applyX(cx), ly = t.applyY(cy);     // après zoom/pan, toujours en logique
+
   const shell = document.getElementById('shell');
-  const scaleX = shell.clientWidth / width;   // viewBox → pixels réels
-  const px = (t.applyX(cx)) * scaleX;
-  const py = (t.applyY(cy)) * scaleX;
+  const svgRect = svg.node().getBoundingClientRect();
+  const shellRect = shell.getBoundingClientRect();
+  const sx = svgRect.width  / VBW;                 // logique → pixels écran
+  const sy = svgRect.height / VBH;
+
+  /* position en pixels, relative au conteneur .map-shell (parent positionné) */
+  const px = (svgRect.left - shellRect.left) + lx * sx;
+  const py = (svgRect.top  - shellRect.top ) + ly * sy;
+
   const tw = tip.offsetWidth, th = tip.offsetHeight;
   const shellW = shell.clientWidth;
   const cxClamped = Math.max(8 + tw/2, Math.min(shellW - 8 - tw/2, px));
@@ -480,8 +496,8 @@ function buildSearch(){
 function focusCommune(f){
   const [[x0,y0],[x1,y1]] = path.bounds(f);
   const dx = x1-x0, dy = y1-y0, cx = (x0+x1)/2, cy = (y0+y1)/2;
-  const scale = Math.max(1, Math.min(12, 0.7 / Math.max(dx/width, dy/height)));
-  const tx = width/2 - scale*cx, ty = height/2 - scale*cy;
+  const scale = Math.max(1, Math.min(12, 0.7 / Math.max(dx/VBW, dy/VBH)));
+  const tx = VBW/2 - scale*cx, ty = VBH/2 - scale*cy;
   svg.transition().duration(600)
     .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale))
     .on('end', () => { highlight(f); showTip(f); });
@@ -514,26 +530,12 @@ function ariaLabel(d){
   return `${p.name_fr}${prov ? ', ' + prov : ''} : ${val}.`;
 }
 
-/* ---------- Resize ---------- */
-function onResize(){
-  const shell = document.getElementById('shell');
-  const w = shell.clientWidth;
-  if(Math.abs(w - width) < 2) return;
-  width = w; height = Math.round(w * 0.62);
-  projection.fitSize([width, height], {type:'FeatureCollection', features});
-  path = d3.geoPath(projection);
-  svg.attr('viewBox', `0 0 ${width} ${height}`).attr('height', height);
-  gMap.selectAll('path').attr('d', path);
-  zoom.translateExtent([[0,0],[width,height]]);
-  hideTip();
-}
 
 /* ---------- Utils ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function normalize(s){ return String(s).toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
-function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
 </script>
 </body>
 </html>
