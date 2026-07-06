@@ -253,12 +253,65 @@ const isTouch = matchMedia('(hover: none)').matches ||
 
 function fmtPct(v){ return (v*100).toLocaleString('fr-BE',{maximumFractionDigits:0}); }
 
+/* ============================================================
+   Correction du winding order pour D3.js
+   Inverse l'orientation des anneaux si nécessaire pour que
+   l'extérieur soit horaire (convention D3) et les trous anti-horaire.
+   ============================================================ */
+function signedArea(ring) {
+  let sum = 0;
+  for (let i = 0, n = ring.length; i < n; i++) {
+    const [x1, y1] = ring[i];
+    const [x2, y2] = ring[(i + 1) % n];
+    sum += x1 * y2 - x2 * y1;
+  }
+  return sum / 2;
+}
+
+function rewindRing(ring, wantClockwise) {
+  const isClockwise = signedArea(ring) < 0;
+  if (isClockwise !== wantClockwise) {
+    return ring.slice().reverse();
+  }
+  return ring;
+}
+
+function rewindPolygon(coords) {
+  // coords[0] = contour extérieur => horaire pour D3
+  // coords[1..] = trous          => anti-horaire pour D3
+  return coords.map((ring, i) => rewindRing(ring, i === 0));
+}
+
+function rewindGeometry(geometry) {
+  if (!geometry) return geometry;
+  switch (geometry.type) {
+    case 'Polygon':
+      geometry.coordinates = rewindPolygon(geometry.coordinates);
+      break;
+    case 'MultiPolygon':
+      geometry.coordinates = geometry.coordinates.map(rewindPolygon);
+      break;
+  }
+  return geometry;
+}
+
+function rewindForD3(geojson) {
+  if (geojson.type === 'FeatureCollection') {
+    geojson.features.forEach(f => rewindGeometry(f.geometry));
+  } else if (geojson.type === 'Feature') {
+    rewindGeometry(geojson.geometry);
+  } else {
+    rewindGeometry(geojson);
+  }
+  return geojson;
+}
 /* ---------- Chargement des données ---------- */
 Promise.all([
   d3.json(GEOJSON_URL),
   d3.text(CSV_URL)
 ]).then(([geo, csvText]) => {
   try {
+    geo = rewindForD3(geo);
     init(geo, parseCSV(csvText));
   } catch(err){
     showError('Erreur au rendu de la carte : ' + (err && err.message ? err.message : err));
@@ -270,6 +323,7 @@ Promise.all([
             (err && err.message ? err.message : err) + ")");
   console.error(err);
 });
+
 
 function showError(msg){
   const l = document.getElementById('loading');
