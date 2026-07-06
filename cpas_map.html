@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Exclusions du chômage et recours au CPAS, par commune</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+<style>
+  :root{
+    --bg:#f5f6fa;
+    --panel:#ffffff;
+    --title:#2a303c;
+    --subtitle:#383f4e;
+    --muted:#717b8e;
+    --source:rgba(102,110,128,.75);
+    --line:#e4e6ec;
+    --accent:#0076a8;              /* RTBF */
+    --hint-bg:rgba(0,118,168,.055);
+    --stroke:#ffffff;              /* liseré entre communes */
+    --nodata:#d7dae0;             /* gris « moins de 10 personnes » */
+    --nodata-stroke:#c2c6cd;
+    --search-bg:#ffffff;
+    --search-border:#d5d9e0;
+    /* fiche sombre (signature Le Monde / cohérence carte des ponts) */
+    --tip-bg:rgba(42,48,60,.97);
+    --tip-border:rgba(42,48,60,.9);
+    --tip-text:#ffffff;
+    --tip-dim:rgba(255,255,255,.7);
+    --tip-hair:rgba(255,255,255,.14);
+    --tip-hair-strong:rgba(255,255,255,.25);
+    --sans:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+    --cond:'Archivo Narrow','Helvetica Neue',Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#001324;
+      --panel:#04182a;
+      --title:#eef2f6;
+      --subtitle:#c3cfdb;
+      --muted:#8ba1b4;
+      --source:rgba(160,180,196,.7);
+      --line:#0e2c44;
+      --accent:#3ba7d8;
+      --hint-bg:rgba(59,167,216,.08);
+      --stroke:#0a2136;
+      --nodata:#243444;
+      --nodata-stroke:#33475a;
+      --search-bg:#04182a;
+      --search-border:#12314a;
+    }
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);
+    background:var(--bg);
+    color:var(--title);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{display:flex;flex-direction:column;width:100%;margin:0 auto;padding:14px 0 16px}
+  .content{width:100%;max-width:760px;margin:0 auto;padding:0 16px}
+
+  /* ---------- En-tête ---------- */
+  .head{margin-bottom:12px;text-align:center}
+  .title{font-weight:700;font-size:20px;line-height:1.3;letter-spacing:-.01em;color:var(--title)}
+  .subtitle{font-weight:400;font-size:13px;line-height:1.5;color:var(--subtitle);margin-top:6px}
+
+  /* ---------- Recherche ---------- */
+  .search-wrap{position:relative;max-width:340px;margin:12px auto 0}
+  .search-input{
+    width:100%;font-family:var(--sans);font-size:14px;color:var(--title);
+    background:var(--search-bg);border:1px solid var(--search-border);border-radius:8px;
+    padding:9px 34px 9px 34px;outline:none;
+  }
+  .search-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--hint-bg)}
+  .search-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+  .search-clear{
+    position:absolute;right:8px;top:50%;transform:translateY(-50%);
+    width:22px;height:22px;border-radius:50%;border:none;cursor:pointer;
+    background:transparent;color:var(--muted);font-size:15px;display:none;
+    align-items:center;justify-content:center;
+  }
+  .search-clear:hover{background:var(--line)}
+  .search-results{
+    position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);
+    background:var(--panel);border:1px solid var(--search-border);border-radius:8px;
+    box-shadow:0 8px 24px rgba(10,20,30,.14);overflow:hidden;max-height:260px;overflow-y:auto;
+    display:none;text-align:left;
+  }
+  .search-results.open{display:block}
+  .sr-item{
+    padding:8px 12px;font-size:13.5px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .sr-item:last-child{border-bottom:none}
+  .sr-item:hover,.sr-item.active{background:var(--hint-bg)}
+  .sr-item .sr-prov{color:var(--muted);font-size:11.5px;font-family:var(--cond)}
+
+  /* ---------- Carte ---------- */
+  .map-shell{position:relative;margin:10px 0 0}
+  #map{width:100%;display:block}
+  #map path{stroke:var(--stroke);stroke-width:.4px;stroke-linejoin:round;cursor:pointer;
+            transition:opacity .12s ease}
+  #map path.nodata{fill:var(--nodata);stroke:var(--nodata-stroke)}
+  #map path.dim{opacity:.32}
+  #map path.hl{stroke:var(--title);stroke-width:1.6px}
+  .zoom-ctrl{
+    position:absolute;top:10px;left:10px;display:flex;flex-direction:column;
+    border-radius:7px;overflow:hidden;box-shadow:0 4px 8px rgba(0,0,0,.08),0 2px 2px rgba(0,0,0,.08);
+  }
+  .zoom-ctrl button{
+    width:30px;height:30px;border:none;background:#fcfcfd;color:#40535c;font-size:17px;
+    cursor:pointer;line-height:1;border-bottom:1px solid #e2e4e9;
+  }
+  .zoom-ctrl button:last-child{border-bottom:none}
+  .zoom-ctrl button:hover{background:#e8eaee}
+
+  /* ---------- Fiche (tooltip) ---------- */
+  .tip{
+    position:absolute;z-index:40;display:none;pointer-events:none;
+    width:236px;max-width:calc(100% - 24px);
+    background:var(--tip-bg);color:var(--tip-text);
+    border:1px solid var(--tip-border);border-radius:12px;
+    box-shadow:rgba(0,0,0,.1) 0 4px 7px 2px;overflow:hidden;
+    font-size:12px;line-height:19px;
+  }
+  .tip-arrow{position:absolute;bottom:-6px;width:0;height:0;border-width:6px;border-style:solid;
+             border-color:var(--tip-bg) transparent transparent transparent;transform:translateX(-6px)}
+  .tip.below .tip-arrow{bottom:auto;top:-6px;border-color:transparent transparent var(--tip-bg) transparent}
+  .tip-body{padding:11px 13px 12px}
+  .tip-eyebrow{font-family:var(--cond);font-weight:600;font-size:10px;letter-spacing:.5px;
+               text-transform:uppercase;color:var(--tip-dim);margin-bottom:2px}
+  .tip-name{font-family:var(--cond);font-weight:700;font-size:16px;line-height:1.2;color:#fff;
+            padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--tip-hair-strong)}
+  .tip-figure{display:flex;align-items:baseline;gap:6px}
+  .tip-value{font-size:23px;font-weight:700;line-height:1;font-family:var(--sans)}
+  .tip-value.na{font-size:15px;font-weight:600;color:var(--tip-dim)}
+  .tip-unit{font-size:11px;color:var(--tip-dim)}
+  .tip-note{margin-top:7px;font-size:11px;line-height:1.4;color:var(--tip-dim)}
+
+  /* ---------- Légende ---------- */
+  .legend{margin-top:14px}
+  .legend-title{font-size:12px;font-weight:600;color:var(--subtitle);margin-bottom:7px;text-align:center}
+  .legend-scale{display:flex;justify-content:center;flex-wrap:wrap;gap:0}
+  .legend-cell{display:flex;flex-direction:column;align-items:center;width:52px}
+  .legend-swatch{width:100%;height:13px}
+  .legend-cell:first-child .legend-swatch{border-radius:3px 0 0 3px}
+  .legend-cell.last-num .legend-swatch{border-radius:0 3px 3px 0}
+  .legend-tick{font-size:10px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+  .legend-na{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--muted)}
+  .legend-na .legend-na-sw{width:14px;height:14px;border-radius:3px;background:var(--nodata);
+                           border:1px solid var(--nodata-stroke)}
+
+  /* ---------- Source ---------- */
+  .source{font-size:11px;color:var(--source);margin-top:13px;line-height:1.5;text-align:center}
+  .source a{color:var(--accent);font-weight:600;text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:1px}
+  .source a:hover,.source a:focus-visible{opacity:.8}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+           clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  #map path:focus{outline:none;stroke:var(--title);stroke-width:1.6px}
+
+  .loading{text-align:center;color:var(--muted);font-size:13px;padding:40px 0}
+
+  @media (max-width:600px){
+    .title{font-size:17px}
+    .legend-cell{width:44px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="content">
+    <div class="head">
+      <div class="title">Après l'exclusion du chômage, le recours au CPAS</div>
+      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage qui se sont tournées vers le CPAS, par commune.</div>
+    </div>
+
+    <div class="search-wrap">
+      <svg class="search-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="9" r="6"/><line x1="14" y1="14" x2="18" y2="18"/></svg>
+      <input type="text" class="search-input" id="search" placeholder="Rechercher une commune…"
+             autocomplete="off" aria-label="Rechercher une commune" role="combobox" aria-expanded="false" aria-controls="search-results">
+      <button class="search-clear" id="search-clear" aria-label="Effacer">✕</button>
+      <div class="search-results" id="search-results" role="listbox"></div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="map-shell" id="shell">
+      <div class="loading" id="loading">Chargement de la carte…</div>
+      <div class="zoom-ctrl" id="zoom-ctrl" style="display:none">
+        <button id="zoom-in" aria-label="Zoomer">+</button>
+        <button id="zoom-out" aria-label="Dézoomer">−</button>
+      </div>
+    </div>
+
+    <div class="legend" id="legend" style="display:none">
+      <div class="legend-title">Part des personnes exclues qui se sont tournées vers le CPAS</div>
+      <div class="legend-scale" id="legend-scale"></div>
+      <div style="text-align:center">
+        <span class="legend-na"><span class="legend-na-sw"></span>Moins de 10 personnes concernées — taux non calculable</span>
+      </div>
+    </div>
+
+    <div class="source">
+      Sources&nbsp;: ONEM (exclusions du droit aux allocations de chômage) et SPP Intégration sociale (recours au CPAS/OCMW).
+      <!-- ⬇️ MODIFIER CE LIEN : URL du PDF/tableur hébergé sur le serveur RTBF -->
+      <a href="https://www.rtbf.be/CHEMIN-A-MODIFIER/donnees_cpas.pdf" download>Télécharger les données (PDF)</a>
+    </div>
+  </div>
+
+  <h2 class="sr-only">Liste des communes et taux de recours au CPAS après exclusion du chômage</h2>
+  <table class="sr-only" id="sr-table">
+    <caption>Équivalent textuel de la carte : pour chaque commune belge, part des personnes exclues du chômage qui se sont tournées vers le CPAS. « Non calculable » signifie que moins de 10 personnes étaient concernées.</caption>
+    <thead><tr><th scope="col">Commune</th><th scope="col">Province</th><th scope="col">Taux</th></tr></thead>
+    <tbody id="sr-table-body"></tbody>
+  </table>
+
+</div>
+
+<script>
+/* ============================================================
+   Carte choroplèthe des communes belges (D3 v7).
+   Deux fichiers externes chargés séparément (même dépôt GitHub) :
+     - communes_belgique.geojson : formes des 565 communes (clé : properties.nis)
+     - taux_cpas.csv             : NIS, Commune, Taux (fraction 0–1, décimale ",")
+   Modifier les taux = éditer le CSV, sans toucher à ce fichier.
+   ============================================================ */
+
+const GEOJSON_URL = 'communes_belgique.geojson';
+const CSV_URL     = 'taux_cpas.csv';
+
+/* Paliers (bornes hautes) et palette ColorBrewer YlOrRd à 7 classes */
+const THRESHOLDS = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60];   // 7 tranches
+const COLORS     = ['#ffffb2','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c','#b10026'];
+const LEGEND_LABELS = ['0','10','20','30','40','50','60',''];  // ticks aux frontières, en %
+
+const color = d3.scaleThreshold().domain(THRESHOLDS).range(COLORS);
+
+const isTouch = matchMedia('(hover: none)').matches ||
+                document.querySelector('.wrap').offsetWidth <= 600;
+
+function fmtPct(v){ return (v*100).toLocaleString('fr-BE',{maximumFractionDigits:0}); }
+
+/* ---------- Chargement des données ---------- */
+Promise.all([
+  d3.json(GEOJSON_URL),
+  d3.text(CSV_URL)
+]).then(([geo, csvText]) => {
+  init(geo, parseCSV(csvText));
+}).catch(err => {
+  document.getElementById('loading').textContent =
+    "Impossible de charger les données de la carte. Vérifiez que les fichiers " +
+    "communes_belgique.geojson et taux_cpas.csv sont présents à côté de cette page.";
+  console.error(err);
+});
+
+/* Parse manuel du CSV : NIS (texte), Taux (fraction, décimale virgule, « n/a » possible) */
+function parseCSV(text){
+  const rows = d3.csvParse(text);
+  const map = new Map();
+  rows.forEach(r => {
+    const nis = String(r.NIS).trim();
+    const raw = (r.Taux || '').trim();
+    let val = null;
+    if(raw !== '' && raw.toLowerCase() !== 'n/a'){
+      val = parseFloat(raw.replace(',', '.'));
+      if(Number.isNaN(val)) val = null;
+    }
+    map.set(nis, { taux: val, nom: (r.Commune||'').trim() });
+  });
+  return map;
+}
+
+/* ---------- Construction de la carte ---------- */
+let svg, gMap, projection, path, zoom, features, tip;
+let width, height;
+
+function init(geo, data){
+  features = geo.features;
+  document.getElementById('loading').style.display = 'none';
+
+  const shell = document.getElementById('shell');
+  width  = shell.clientWidth;
+  height = Math.round(width * 0.62);   // ratio adapté à la Belgique
+
+  projection = d3.geoMercator().fitSize([width, height], geo);
+  path = d3.geoPath(projection);
+
+  svg = d3.select(shell).append('svg')
+    .attr('id','map')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('width','100%')
+    .attr('height', height)
+    .attr('role','application')
+    .attr('aria-label','Carte des communes belges colorées selon le taux de recours au CPAS après exclusion du chômage');
+
+  gMap = svg.append('g');
+
+  /* Fiche */
+  tip = document.createElement('div');
+  tip.className = 'tip';
+  tip.innerHTML = '<div class="tip-content"></div><div class="tip-arrow"></div>';
+  shell.appendChild(tip);
+
+  /* Attache les données à chaque feature */
+  features.forEach(f => {
+    const rec = data.get(String(f.properties.nis));
+    f.properties._taux = rec ? rec.taux : null;   // null = n/a
+  });
+
+  /* Dessin des communes */
+  gMap.selectAll('path')
+    .data(features)
+    .join('path')
+      .attr('d', path)
+      .attr('class', d => d.properties._taux === null ? 'nodata' : null)
+      .attr('fill', d => d.properties._taux === null ? null : color(d.properties._taux))
+      .attr('tabindex', 0)
+      .attr('role','button')
+      .attr('aria-label', d => ariaLabel(d))
+      .on('mouseover', (e,d) => { if(!isTouch){ highlight(d); showTip(d); } })
+      .on('mousemove', (e,d) => { if(!isTouch) positionTip(d); })
+      .on('mouseout',  ()   => { if(!isTouch){ clearHighlight(); hideTip(); } })
+      .on('click',     (e,d) => { if(isTouch){ highlight(d); showTip(d); } })
+      .on('focus',     (e,d) => { highlight(d); showTip(d); })
+      .on('blur',      ()    => { clearHighlight(); hideTip(); });
+
+  /* Zoom / pan */
+  zoom = d3.zoom()
+    .scaleExtent([1, 12])
+    .translateExtent([[0,0],[width,height]])
+    .on('zoom', (e) => gMap.attr('transform', e.transform));
+  svg.call(zoom);
+  if(isTouch) svg.on('wheel.zoom', null);   // ne pas capter le scroll de l'article sur mobile
+
+  document.getElementById('zoom-ctrl').style.display = 'flex';
+  document.getElementById('zoom-in').onclick  = () => svg.transition().duration(200).call(zoom.scaleBy, 1.6);
+  document.getElementById('zoom-out').onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 1/1.6);
+
+  buildLegend();
+  buildSearch();
+  buildSrTable();
+
+  window.addEventListener('resize', debounce(onResize, 200));
+}
+
+/* ---------- Fiche : contenu & position ---------- */
+let currentFeature = null;
+
+function tipHTML(d){
+  const p = d.properties;
+  const prov = p.prov_fr || (p.reg_fr === 'Région de Bruxelles-Capitale' ? 'Bruxelles-Capitale' : '');
+  if(p._taux === null){
+    return `<div class="tip-body">
+      <div class="tip-eyebrow">${esc(prov)}</div>
+      <div class="tip-name">${esc(p.name_fr)}</div>
+      <div class="tip-figure"><span class="tip-value na">Non calculable</span></div>
+      <div class="tip-note">Moins de 10 personnes exclues du chômage dans cette commune : le taux ne peut pas être calculé de façon fiable.</div>
+    </div>`;
+  }
+  return `<div class="tip-body">
+    <div class="tip-eyebrow">${esc(prov)}</div>
+    <div class="tip-name">${esc(p.name_fr)}</div>
+    <div class="tip-figure"><span class="tip-value">${fmtPct(p._taux)}&nbsp;%</span>
+      <span class="tip-unit">des personnes exclues<br>se sont tournées vers le CPAS</span></div>
+  </div>`;
+}
+
+function showTip(d){
+  currentFeature = d;
+  tip.querySelector('.tip-content').innerHTML = tipHTML(d);
+  tip.style.display = 'block';
+  positionTip(d);
+}
+function positionTip(d){
+  const [cx, cy] = path.centroid(d);
+  const t = d3.zoomTransform(svg.node());
+  const shell = document.getElementById('shell');
+  const scaleX = shell.clientWidth / width;   // viewBox → pixels réels
+  const px = (t.applyX(cx)) * scaleX;
+  const py = (t.applyY(cy)) * scaleX;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  const shellW = shell.clientWidth;
+  const cxClamped = Math.max(8 + tw/2, Math.min(shellW - 8 - tw/2, px));
+  const below = (py - th - 16) < 0;
+  tip.classList.toggle('below', below);
+  tip.style.left = cxClamped + 'px';
+  tip.style.top  = py + 'px';
+  tip.style.transform = below ? 'translate(-50%, 16px)' : 'translate(-50%, calc(-100% - 16px))';
+  const arrow = tip.querySelector('.tip-arrow');
+  arrow.style.left = Math.max(10, Math.min(tw-10, px - (cxClamped - tw/2))) + 'px';
+}
+function hideTip(){ tip.style.display = 'none'; currentFeature = null; }
+
+/* ---------- Surbrillance ---------- */
+function highlight(d){
+  gMap.selectAll('path').classed('dim', o => o !== d).classed('hl', o => o === d);
+}
+function clearHighlight(){ gMap.selectAll('path').classed('dim', false).classed('hl', false); }
+
+/* ---------- Légende ---------- */
+function buildLegend(){
+  const scale = d3.select('#legend-scale');
+  COLORS.forEach((c, i) => {
+    const cell = scale.append('div').attr('class','legend-cell' + (i === COLORS.length-1 ? ' last-num' : ''));
+    cell.append('div').attr('class','legend-swatch').style('background', c);
+    cell.append('div').attr('class','legend-tick').text(LEGEND_LABELS[i] + (i===0?' %':''));
+  });
+  document.getElementById('legend').style.display = 'block';
+}
+
+/* ---------- Recherche avec autocomplétion ---------- */
+function buildSearch(){
+  const input = document.getElementById('search');
+  const box   = document.getElementById('search-results');
+  const clear = document.getElementById('search-clear');
+
+  const list = features.map(f => ({
+    f, name: f.properties.name_fr,
+    prov: f.properties.prov_fr || (f.properties.reg_fr==='Région de Bruxelles-Capitale' ? 'Bruxelles' : ''),
+    norm: normalize(f.properties.name_fr)
+  })).sort((a,b) => a.name.localeCompare(b.name,'fr'));
+
+  let active = -1, shown = [];
+
+  function render(q){
+    const nq = normalize(q);
+    shown = nq ? list.filter(x => x.norm.includes(nq)).slice(0, 8) : [];
+    box.innerHTML = shown.map((x,i) =>
+      `<div class="sr-item${i===active?' active':''}" role="option" data-i="${i}">
+         <span>${esc(x.name)}</span><span class="sr-prov">${esc(x.prov)}</span></div>`).join('');
+    box.classList.toggle('open', shown.length > 0);
+    input.setAttribute('aria-expanded', shown.length > 0 ? 'true' : 'false');
+    box.querySelectorAll('.sr-item').forEach(el => {
+      el.onclick = () => choose(shown[+el.dataset.i]);
+    });
+  }
+  function choose(item){
+    input.value = item.name;
+    box.classList.remove('open'); active = -1;
+    input.setAttribute('aria-expanded','false');
+    focusCommune(item.f);
+  }
+
+  input.addEventListener('input', () => {
+    active = -1; clear.style.display = input.value ? 'flex' : 'none';
+    render(input.value);
+  });
+  input.addEventListener('keydown', (e) => {
+    if(!shown.length) return;
+    if(e.key === 'ArrowDown'){ active = Math.min(active+1, shown.length-1); e.preventDefault(); }
+    else if(e.key === 'ArrowUp'){ active = Math.max(active-1, 0); e.preventDefault(); }
+    else if(e.key === 'Enter'){ if(active>=0){ choose(shown[active]); e.preventDefault(); } else if(shown.length){ choose(shown[0]); } }
+    else if(e.key === 'Escape'){ box.classList.remove('open'); active=-1; }
+    else return;
+    box.querySelectorAll('.sr-item').forEach((el,i) => el.classList.toggle('active', i===active));
+  });
+  clear.addEventListener('click', () => {
+    input.value=''; clear.style.display='none'; box.classList.remove('open');
+    resetZoom(); clearHighlight(); hideTip(); input.focus();
+  });
+  document.addEventListener('click', (e) => {
+    if(!e.target.closest('.search-wrap')) box.classList.remove('open');
+  });
+}
+
+/* Zoom sur une commune + surbrillance + fiche persistante */
+function focusCommune(f){
+  const [[x0,y0],[x1,y1]] = path.bounds(f);
+  const dx = x1-x0, dy = y1-y0, cx = (x0+x1)/2, cy = (y0+y1)/2;
+  const scale = Math.max(1, Math.min(12, 0.7 / Math.max(dx/width, dy/height)));
+  const tx = width/2 - scale*cx, ty = height/2 - scale*cy;
+  svg.transition().duration(600)
+    .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale))
+    .on('end', () => { highlight(f); showTip(f); });
+}
+function resetZoom(){
+  svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+}
+
+/* ---------- Tableau accessible ---------- */
+function buildSrTable(){
+  const body = document.getElementById('sr-table-body');
+  const rows = features
+    .slice()
+    .sort((a,b) => a.properties.name_fr.localeCompare(b.properties.name_fr,'fr'))
+    .map(f => {
+      const p = f.properties;
+      const prov = p.prov_fr || (p.reg_fr==='Région de Bruxelles-Capitale' ? 'Bruxelles-Capitale' : '—');
+      const val = p._taux === null ? 'Non calculable (moins de 10 personnes)' : fmtPct(p._taux) + ' %';
+      return `<tr><td>${esc(p.name_fr)}</td><td>${esc(prov)}</td><td>${val}</td></tr>`;
+    });
+  body.innerHTML = rows.join('');
+}
+
+function ariaLabel(d){
+  const p = d.properties;
+  const prov = p.prov_fr || (p.reg_fr==='Région de Bruxelles-Capitale' ? 'Bruxelles-Capitale' : '');
+  const val = p._taux === null
+    ? 'taux non calculable, moins de 10 personnes concernées'
+    : fmtPct(p._taux) + ' pour cent des personnes exclues se sont tournées vers le CPAS';
+  return `${p.name_fr}${prov ? ', ' + prov : ''} : ${val}.`;
+}
+
+/* ---------- Resize ---------- */
+function onResize(){
+  const shell = document.getElementById('shell');
+  const w = shell.clientWidth;
+  if(Math.abs(w - width) < 2) return;
+  width = w; height = Math.round(w * 0.62);
+  projection.fitSize([width, height], {type:'FeatureCollection', features});
+  path = d3.geoPath(projection);
+  svg.attr('viewBox', `0 0 ${width} ${height}`).attr('height', height);
+  gMap.selectAll('path').attr('d', path);
+  zoom.translateExtent([[0,0],[width,height]]);
+  hideTip();
+}
+
+/* ---------- Utils ---------- */
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function normalize(s){ return String(s).toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
+</script>
+</body>
+</html>
