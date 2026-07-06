@@ -108,11 +108,15 @@
   /* ---------- Carte ---------- */
   .map-shell{position:relative;margin:10px 0 0}
   #map{width:100%;height:auto;display:block;max-height:78vh}
-  #map path{stroke:var(--stroke);stroke-width:.4px;stroke-linejoin:round;cursor:pointer;
-            transition:opacity .12s ease}
+  #map path{stroke:var(--stroke);stroke-width:.4px;stroke-linejoin:round;cursor:pointer}
+  #map g.communes{will-change:transform}
+  /* Pendant le geste de zoom/pan uniquement : rendu allégé (moins d'anti-crénelage,
+     pas de calcul de survol) pour fluidifier le déplacement. Aucun impact une fois
+     le zoom terminé — la classe est retirée à la fin du geste. */
+  #map g.communes.zooming{shape-rendering:optimizeSpeed}
+  #map g.communes.zooming path{pointer-events:none}
+  #map path.hl{stroke:#ffffff;stroke-width:2.2px}
   #map path.nodata{fill:var(--nodata);stroke:var(--nodata-stroke)}
-  #map path.dim{opacity:.32}
-  #map path.hl{stroke:var(--title);stroke-width:1.6px}
   .zoom-ctrl{
     position:absolute;top:10px;left:10px;display:flex;flex-direction:column;
     border-radius:7px;overflow:hidden;box-shadow:0 4px 8px rgba(0,0,0,.08),0 2px 2px rgba(0,0,0,.08);
@@ -253,65 +257,12 @@ const isTouch = matchMedia('(hover: none)').matches ||
 
 function fmtPct(v){ return (v*100).toLocaleString('fr-BE',{maximumFractionDigits:0}); }
 
-/* ============================================================
-   Correction du winding order pour D3.js
-   Inverse l'orientation des anneaux si nécessaire pour que
-   l'extérieur soit horaire (convention D3) et les trous anti-horaire.
-   ============================================================ */
-function signedArea(ring) {
-  let sum = 0;
-  for (let i = 0, n = ring.length; i < n; i++) {
-    const [x1, y1] = ring[i];
-    const [x2, y2] = ring[(i + 1) % n];
-    sum += x1 * y2 - x2 * y1;
-  }
-  return sum / 2;
-}
-
-function rewindRing(ring, wantClockwise) {
-  const isClockwise = signedArea(ring) < 0;
-  if (isClockwise !== wantClockwise) {
-    return ring.slice().reverse();
-  }
-  return ring;
-}
-
-function rewindPolygon(coords) {
-  // coords[0] = contour extérieur => horaire pour D3
-  // coords[1..] = trous          => anti-horaire pour D3
-  return coords.map((ring, i) => rewindRing(ring, i === 0));
-}
-
-function rewindGeometry(geometry) {
-  if (!geometry) return geometry;
-  switch (geometry.type) {
-    case 'Polygon':
-      geometry.coordinates = rewindPolygon(geometry.coordinates);
-      break;
-    case 'MultiPolygon':
-      geometry.coordinates = geometry.coordinates.map(rewindPolygon);
-      break;
-  }
-  return geometry;
-}
-
-function rewindForD3(geojson) {
-  if (geojson.type === 'FeatureCollection') {
-    geojson.features.forEach(f => rewindGeometry(f.geometry));
-  } else if (geojson.type === 'Feature') {
-    rewindGeometry(geojson.geometry);
-  } else {
-    rewindGeometry(geojson);
-  }
-  return geojson;
-}
 /* ---------- Chargement des données ---------- */
 Promise.all([
   d3.json(GEOJSON_URL),
   d3.text(CSV_URL)
 ]).then(([geo, csvText]) => {
   try {
-    geo = rewindForD3(geo);
     init(geo, parseCSV(csvText));
   } catch(err){
     showError('Erreur au rendu de la carte : ' + (err && err.message ? err.message : err));
@@ -323,7 +274,6 @@ Promise.all([
             (err && err.message ? err.message : err) + ")");
   console.error(err);
 });
-
 
 function showError(msg){
   const l = document.getElementById('loading');
@@ -349,6 +299,7 @@ function parseCSV(text){
 
 /* ---------- Construction de la carte ---------- */
 let svg, gMap, projection, path, zoom, features, tip;
+let nodeByFeature;
 let VBW, VBH;   // dimensions logiques (viewBox), fixes — indépendantes des pixels
 
 function init(geo, data){
@@ -387,7 +338,7 @@ function init(geo, data){
     .attr('role','application')
     .attr('aria-label','Carte des communes belges colorées selon le taux de recours au CPAS après exclusion du chômage');
 
-  gMap = svg.append('g');
+  gMap = svg.append('g').attr('class','communes');
 
   /* Fiche */
   tip = document.createElement('div');
@@ -402,6 +353,7 @@ function init(geo, data){
   });
 
   /* Dessin des communes */
+  nodeByFeature = new Map();
   gMap.selectAll('path')
     .data(features)
     .join('path')
@@ -411,17 +363,20 @@ function init(geo, data){
       .attr('tabindex', 0)
       .attr('role','button')
       .attr('aria-label', d => ariaLabel(d))
-      .on('mouseover', (e,d) => { if(!isTouch){ highlight(d); showTip(d); } })
+      .each(function(d){ nodeByFeature.set(d, this); })
+      .on('mouseover', (e,d) => { if(!isTouch){ highlight(e.currentTarget); showTip(d); } })
       .on('mouseout',  ()   => { if(!isTouch){ clearHighlight(); hideTip(); } })
-      .on('click',     (e,d) => { if(isTouch){ highlight(d); showTip(d); } })
-      .on('focus',     (e,d) => { highlight(d); showTip(d); })
+      .on('click',     (e,d) => { if(isTouch){ highlight(e.currentTarget); showTip(d); } })
+      .on('focus',     (e,d) => { highlight(e.currentTarget); showTip(d); })
       .on('blur',      ()    => { clearHighlight(); hideTip(); });
 
   /* Zoom / pan */
   zoom = d3.zoom()
     .scaleExtent([1, 12])
     .translateExtent([[0,0],[VBW,VBH]])
-    .on('zoom', (e) => { gMap.attr('transform', e.transform); if(currentFeature) positionTip(currentFeature); });
+    .on('start', () => gMap.classed('zooming', true))
+    .on('zoom', (e) => { gMap.attr('transform', e.transform); if(currentFeature) positionTip(currentFeature); })
+    .on('end', () => gMap.classed('zooming', false));
   svg.call(zoom);
   if(isTouch) svg.on('wheel.zoom', null);   // ne pas capter le scroll de l'article sur mobile
 
@@ -495,10 +450,15 @@ function positionTip(d){
 function hideTip(){ tip.style.display = 'none'; currentFeature = null; }
 
 /* ---------- Surbrillance ---------- */
-function highlight(d){
-  gMap.selectAll('path').classed('dim', o => o !== d).classed('hl', o => o === d);
+let hlNode = null;
+function highlight(node){
+  if(hlNode) hlNode.classList.remove('hl');
+  hlNode = node;
+  if(hlNode) hlNode.classList.add('hl');
 }
-function clearHighlight(){ gMap.selectAll('path').classed('dim', false).classed('hl', false); }
+function clearHighlight(){
+  if(hlNode){ hlNode.classList.remove('hl'); hlNode = null; }
+}
 
 /* ---------- Légende ---------- */
 function buildLegend(){
@@ -574,7 +534,7 @@ function focusCommune(f){
   const tx = VBW/2 - scale*cx, ty = VBH/2 - scale*cy;
   svg.transition().duration(600)
     .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale))
-    .on('end', () => { highlight(f); showTip(f); });
+    .on('end', () => { highlight(nodeByFeature.get(f)); showTip(f); });
 }
 function resetZoom(){
   svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
