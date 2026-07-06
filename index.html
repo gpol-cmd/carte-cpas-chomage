@@ -113,6 +113,7 @@
   #map path.nodata{fill:var(--nodata);stroke:var(--nodata-stroke)}
   #map path.dim{opacity:.32}
   #map path.hl{stroke:var(--title);stroke-width:1.6px}
+  #map-g{will-change:transform}
   .zoom-ctrl{
     position:absolute;top:10px;left:10px;display:flex;flex-direction:column;
     border-radius:7px;overflow:hidden;box-shadow:0 4px 8px rgba(0,0,0,.08),0 2px 2px rgba(0,0,0,.08);
@@ -294,8 +295,18 @@ function parseCSV(text){
 }
 
 /* ---------- Construction de la carte ---------- */
-let svg, gMap, projection, path, zoom, features, tip;
+let svg, gMap, projection, pathGen, zoom, features, tip;
 let VBW, VBH;   // dimensions logiques (viewBox), fixes — indépendantes des pixels
+
+/* ── Cache pour positionTip : mis à jour une seule fois, réutilisé à chaque mousemove ── */
+let _cacheSvgRect = null;
+let _cacheShellRect = null;
+let _tipEl = null;          // DOM element, mis en cache au premier accès
+
+function _refreshRectCache(){
+  _cacheSvgRect  = svg.node().getBoundingClientRect();
+  _cacheShellRect = document.getElementById('shell').getBoundingClientRect();
+}
 
 function init(geo, data){
   features = geo.features;
@@ -303,25 +314,22 @@ function init(geo, data){
 
   const shell = document.getElementById('shell');
 
-  /* Système de coordonnées LOGIQUE fixe : la projection s'ajuste à cette taille,
-     et le SVG est ensuite mis à l'échelle en CSS (width:100%) via le viewBox.
-     Ainsi le rendu ne dépend jamais de la largeur pixel réelle au moment du chargement
-     (qui pouvait valoir 0 et produisait un tracé géant). */
   VBW = 1000;
-  VBH = 620;                      // ratio Belgique ~0.62
+  VBH = 620;
 
   projection = d3.geoMercator();
   projection.fitExtent([[10,10],[VBW-10,VBH-10]], geo);
 
-  /* Garde-fou : si fitExtent n'a pas pu calculer une échelle valide
-     (par ex. géométrie chargée mais dégénérée), on ne dessine pas un tracé géant. */
   const sc = projection.scale();
   if(!isFinite(sc) || sc <= 0){
-    showError('La projection n’a pas pu être calculée (échelle invalide). Le fichier GeoJSON est peut-être incomplet.');
+    showError('La projection n\'a pas pu être calculée (échelle invalide). Le fichier GeoJSON est peut-être incomplet.');
     return;
   }
 
-  path = d3.geoPath().projection(projection);
+  /* pathGen est configuré sans rounding de coords (D3 ne permet pas de tronquer
+     les décimales du path string — ça se fait sur le GeoJSON source).
+     On utilise pointRadius=2.5 pour les cas où le GeoJSON contient des Points. */
+  pathGen = d3.geoPath().projection(projection).pointRadius(2.5);
 
   svg = d3.select(shell).append('svg')
     .attr('id','map')
@@ -333,43 +341,82 @@ function init(geo, data){
     .attr('role','application')
     .attr('aria-label','Carte des communes belges colorées selon le taux de recours au CPAS après exclusion du chômage');
 
-  gMap = svg.append('g');
+  /* id="map-g" ajouté pour le CSS will-change + sélecteur explicite ci-dessous */
+  gMap = svg.append('g').attr('id','map-g');
 
   /* Fiche */
   tip = document.createElement('div');
   tip.className = 'tip';
   tip.innerHTML = '<div class="tip-content"></div><div class="tip-arrow"></div>';
   shell.appendChild(tip);
+  _tipEl = tip;   // cache le DOM node
 
   /* Attache les données à chaque feature */
   features.forEach(f => {
     const rec = data.get(String(f.properties.nis));
-    f.properties._taux = rec ? rec.taux : null;   // null = n/a
+    f.properties._taux = rec ? rec.taux : null;
   });
 
   /* Dessin des communes */
   gMap.selectAll('path')
     .data(features)
     .join('path')
-      .attr('d', path)
+      .attr('d', pathGen)
       .attr('class', d => d.properties._taux === null ? 'nodata' : null)
       .attr('fill', d => d.properties._taux === null ? null : color(d.properties._taux))
       .attr('tabindex', 0)
       .attr('role','button')
-      .attr('aria-label', d => ariaLabel(d))
-      .on('mouseover', (e,d) => { if(!isTouch){ highlight(d); showTip(d); } })
-      .on('mouseout',  ()   => { if(!isTouch){ clearHighlight(); hideTip(); } })
-      .on('click',     (e,d) => { if(isTouch){ highlight(d); showTip(d); } })
-      .on('focus',     (e,d) => { highlight(d); showTip(d); })
-      .on('blur',      ()    => { clearHighlight(); hideTip(); });
+      .attr('aria-label', d => ariaLabel(d));
+
+  /* ── DÉLÉGATION D'ÉVÉNEMENTS sur le <g> parent (au lieu de 5 listeners × 565 paths)
+     Les handlers lisent event.target et extraient la donnée via __data__. ── */
+  gMap.on('mouseover', function(e){
+    if(isTouch) return;
+    const node = e.target;
+    if(node.tagName !== 'path') return;
+    const d = node.__data__ || d3.select(node).datum();
+    if(!d) return;
+    highlight(d);
+    showTip(d);
+  })
+  .on('mouseout', function(e){
+    if(isTouch) return;
+    /* On vérifie que le relatedTarget est bien hors de la carte pour ne pas
+       déclencher un flash de "pas de highlight" quand on passe d'une commune à l'autre */
+    if(e.relatedTarget && e.relatedTarget.closest('#map')) return;
+    clearHighlight();
+    hideTip();
+  })
+  .on('click', function(e){
+    if(!isTouch) return;
+    const node = e.target;
+    if(node.tagName !== 'path') return;
+    const d = node.__data__ || d3.select(node).datum();
+    if(!d) return;
+    highlight(d);
+    showTip(d);
+  })
+  .on('focusin', function(e){
+    const node = e.target;
+    if(node.tagName !== 'path') return;
+    const d = node.__data__ || d3.select(node).datum();
+    if(!d) return;
+    highlight(d);
+    showTip(d);
+  })
+  .on('focusout', function(e){
+    if(e.relatedTarget && e.relatedTarget.closest('#map')) return;
+    clearHighlight();
+    hideTip();
+  });
 
   /* Zoom / pan */
   zoom = d3.zoom()
     .scaleExtent([1, 12])
     .translateExtent([[0,0],[VBW,VBH]])
-    .on('zoom', (e) => { gMap.attr('transform', e.transform); if(currentFeature) positionTip(currentFeature); });
+    .on('zoom', (e) => { gMap.attr('transform', e.transform); });
   svg.call(zoom);
-  if(isTouch) svg.on('wheel.zoom', null);   // ne pas capter le scroll de l'article sur mobile
+  if(isTouch) svg.on('wheel.zoom', null);
 
   document.getElementById('zoom-ctrl').style.display = 'flex';
   document.getElementById('zoom-in').onclick  = () => svg.transition().duration(200).call(zoom.scaleBy, 1.6);
@@ -379,9 +426,8 @@ function init(geo, data){
   buildSearch();
   buildSrTable();
 
-  /* Le viewBox rend le SVG responsive automatiquement ; on masque juste la fiche
-     pendant un redimensionnement pour éviter qu'elle reste mal positionnée. */
-  window.addEventListener('resize', () => { clearHighlight(); hideTip(); });
+  /* Rafraîchit le cache des bounding rect quand la fenêtre change de taille */
+  window.addEventListener('resize', () => { _refreshRectCache(); clearHighlight(); hideTip(); });
 }
 
 /* ---------- Fiche : contenu & position ---------- */
@@ -412,23 +458,22 @@ function showTip(d){
   tip.style.display = 'block';
   positionTip(d);
 }
+
 function positionTip(d){
-  const [cx, cy] = path.centroid(d);              // coords logiques (viewBox)
+  const [cx, cy] = pathGen.centroid(d);
   const t = d3.zoomTransform(svg.node());
-  const lx = t.applyX(cx), ly = t.applyY(cy);     // après zoom/pan, toujours en logique
+  const lx = t.applyX(cx), ly = t.applyY(cy);
 
-  const shell = document.getElementById('shell');
-  const svgRect = svg.node().getBoundingClientRect();
-  const shellRect = shell.getBoundingClientRect();
-  const sx = svgRect.width  / VBW;                 // logique → pixels écran
-  const sy = svgRect.height / VBH;
+  /* Utilise le cache mis à jour une seule fois, au lieu de 2 appels getBoundingClientRect()
+     à chaque mousemove/zoom */
+  const sx = _cacheSvgRect.width  / VBW;
+  const sy = _cacheSvgRect.height / VBH;
 
-  /* position en pixels, relative au conteneur .map-shell (parent positionné) */
-  const px = (svgRect.left - shellRect.left) + lx * sx;
-  const py = (svgRect.top  - shellRect.top ) + ly * sy;
+  const px = (_cacheSvgRect.left - _cacheShellRect.left) + lx * sx;
+  const py = (_cacheSvgRect.top  - _cacheShellRect.top ) + ly * sy;
 
   const tw = tip.offsetWidth, th = tip.offsetHeight;
-  const shellW = shell.clientWidth;
+  const shellW = _cacheShellRect.clientWidth;
   const cxClamped = Math.max(8 + tw/2, Math.min(shellW - 8 - tw/2, px));
   const below = (py - th - 16) < 0;
   tip.classList.toggle('below', below);
@@ -514,13 +559,13 @@ function buildSearch(){
 
 /* Zoom sur une commune + surbrillance + fiche persistante */
 function focusCommune(f){
-  const [[x0,y0],[x1,y1]] = path.bounds(f);
+  const [[x0,y0],[x1,y1]] = pathGen.bounds(f);
   const dx = x1-x0, dy = y1-y0, cx = (x0+x1)/2, cy = (y0+y1)/2;
   const scale = Math.max(1, Math.min(12, 0.7 / Math.max(dx/VBW, dy/VBH)));
   const tx = VBW/2 - scale*cx, ty = VBH/2 - scale*cy;
   svg.transition().duration(600)
     .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale))
-    .on('end', () => { highlight(f); showTip(f); });
+    .on('end', () => { _refreshRectCache(); highlight(f); showTip(f); });
 }
 function resetZoom(){
   svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
@@ -553,9 +598,10 @@ function ariaLabel(d){
 
 /* ---------- Utils ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g,
-  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  c => ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c])); }
 function normalize(s){ return String(s).toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
 </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
