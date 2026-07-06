@@ -115,7 +115,7 @@
      le zoom terminé — la classe est retirée à la fin du geste. */
   #map g.communes.zooming{shape-rendering:optimizeSpeed}
   #map g.communes.zooming path{pointer-events:none}
-  #map path.hl{stroke:#ffffff;stroke-width:2.2px}
+  #map path.hl-overlay{fill:none;stroke:#ffffff;stroke-width:1.6px;stroke-linejoin:round;pointer-events:none;display:none}
   #map path.nodata{fill:var(--nodata);stroke:var(--nodata-stroke)}
   .zoom-ctrl{
     position:absolute;top:10px;left:10px;display:flex;flex-direction:column;
@@ -299,7 +299,7 @@ function parseCSV(text){
 
 /* ---------- Construction de la carte ---------- */
 let svg, gMap, projection, path, zoom, features, tip;
-let nodeByFeature;
+let nodeByFeature, hlPath;
 let VBW, VBH;   // dimensions logiques (viewBox), fixes — indépendantes des pixels
 
 function init(geo, data){
@@ -369,6 +369,11 @@ function init(geo, data){
       .on('click',     (e,d) => { if(isTouch){ highlight(e.currentTarget); showTip(d); } })
       .on('focus',     (e,d) => { highlight(e.currentTarget); showTip(d); })
       .on('blur',      ()    => { clearHighlight(); hideTip(); });
+
+  /* Calque de surbrillance : un unique tracé, ajouté APRÈS toutes les communes,
+     donc toujours peint par-dessus — son contour n'est jamais partiellement
+     recouvert par une commune voisine, quelle que soit la commune survolée. */
+  hlPath = gMap.append('path').attr('class','hl-overlay');
 
   /* Zoom / pan */
   zoom = d3.zoom()
@@ -450,14 +455,12 @@ function positionTip(d){
 function hideTip(){ tip.style.display = 'none'; currentFeature = null; }
 
 /* ---------- Surbrillance ---------- */
-let hlNode = null;
 function highlight(node){
-  if(hlNode) hlNode.classList.remove('hl');
-  hlNode = node;
-  if(hlNode) hlNode.classList.add('hl');
+  if(!node) return;
+  hlPath.attr('d', node.getAttribute('d')).style('display','block');
 }
 function clearHighlight(){
-  if(hlNode){ hlNode.classList.remove('hl'); hlNode = null; }
+  hlPath.style('display','none');
 }
 
 /* ---------- Légende ---------- */
