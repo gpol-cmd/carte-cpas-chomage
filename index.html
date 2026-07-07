@@ -117,6 +117,19 @@
   #map g.communes.zooming path{pointer-events:none}
   #map path.hl-overlay{fill:none;stroke:#ffffff;stroke-width:1.6px;stroke-linejoin:round;pointer-events:none;display:none}
   #map path.nodata{fill:var(--nodata);stroke:var(--nodata-stroke)}
+
+  /* Repères des grandes villes */
+  #map .city{pointer-events:none}
+  #map .city-dot{fill:#ffffff;stroke:#40474f;stroke-width:.7px}
+  #map .city-label{
+    font-family:var(--sans);font-weight:600;font-size:11px;
+    fill:#2a303c;
+    paint-order:stroke;stroke:rgba(255,255,255,.9);stroke-width:2.6px;stroke-linejoin:round;
+  }
+  @media (prefers-color-scheme:dark){
+    #map .city-dot{fill:#ffffff;stroke:#0a1a28}
+    #map .city-label{fill:#0c1a26;stroke:rgba(255,255,255,.82)}
+  }
   .zoom-ctrl{
     position:absolute;top:10px;left:10px;display:flex;flex-direction:column;
     border-radius:7px;overflow:hidden;box-shadow:0 4px 8px rgba(0,0,0,.08),0 2px 2px rgba(0,0,0,.08);
@@ -150,6 +163,12 @@
   .tip-value.na{font-size:15px;font-weight:600;color:var(--tip-dim)}
   .tip-unit{font-size:11px;color:var(--tip-dim)}
   .tip-note{margin-top:7px;font-size:11px;line-height:1.4;color:var(--tip-dim)}
+  .tip-breakdown{margin-top:10px;padding-top:9px;border-top:1px solid var(--tip-hair-strong);
+                 display:flex;flex-direction:column;gap:4px}
+  .tip-bd-row{display:flex;align-items:baseline;gap:7px}
+  .tip-bd-val{font-family:var(--sans);font-weight:700;font-size:14px;min-width:34px;
+              text-align:right;font-variant-numeric:tabular-nums}
+  .tip-bd-lbl{font-size:11px;color:var(--tip-dim)}
 
   /* ---------- Légende ---------- */
   .legend{margin-top:14px}
@@ -188,7 +207,7 @@
   <div class="content">
     <div class="head">
       <div class="title">Après l'exclusion du chômage, le recours au CPAS</div>
-      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage qui se sont tournées vers le CPAS, par commune.</div>
+      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage qui se sont tournées vers le CPAS, par commune. Chiffres arrêtés au 1<sup>er</sup> juillet 2026 (vague 3 sur 6 des fins de droit).</div>
     </div>
 
     <div class="search-wrap">
@@ -230,7 +249,7 @@
   <h2>Liste des communes et taux de recours au CPAS après exclusion du chômage</h2>
   <table id="sr-table">
     <caption>Équivalent textuel de la carte : pour chaque commune belge, part des personnes exclues du chômage qui se sont tournées vers le CPAS. « Non calculable » signifie que moins de 10 personnes étaient concernées.</caption>
-    <thead><tr><th scope="col">Commune</th><th scope="col">Province</th><th scope="col">Taux</th></tr></thead>
+    <thead><tr><th scope="col">Commune</th><th scope="col">Province</th><th scope="col">Exclus du chômage</th><th scope="col">Vers le CPAS</th><th scope="col">Taux</th></tr></thead>
     <tbody id="sr-table-body"></tbody>
   </table>
   </div>
@@ -255,6 +274,24 @@ const COLORS     = ['#ffffb2','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c',
 const LEGEND_LABELS = ['0','10','20','30','40','50','60',''];  // ticks aux frontières, en %
 
 const color = d3.scaleThreshold().domain(THRESHOLDS).range(COLORS);
+
+/* Grandes villes servant de repères (nom_fr tel qu'il figure dans le GeoJSON).
+   Le point et le libellé sont posés au centroïde de la commune correspondante.
+   'dx' permet de décaler le libellé pour éviter les chevauchements de texte. */
+const CITIES = [
+  {n:'Bruxelles',  dx:7,  dy:3},
+  {n:'Anvers',     dx:7,  dy:3},
+  {n:'Gand',       dx:7,  dy:3},
+  {n:'Bruges',     dx:7,  dy:3},
+  {n:'Liège',      dx:7,  dy:3},
+  {n:'Charleroi',  dx:7,  dy:12},
+  {n:'Namur',      dx:7,  dy:3},
+  {n:'Mons',       dx:-7, dy:3, anchor:'end'},
+  {n:'Louvain',    dx:7,  dy:-4},
+  {n:'Hasselt',    dx:7,  dy:3},
+  {n:'Courtrai',   dx:7,  dy:12},
+  {n:'Arlon',      dx:7,  dy:3},
+];
 
 const isTouch = matchMedia('(hover: none)').matches ||
                 document.querySelector('.wrap').offsetWidth <= 600;
@@ -296,14 +333,19 @@ function parseCSV(text){
       val = parseFloat(raw.replace(',', '.'));
       if(Number.isNaN(val)) val = null;
     }
-    map.set(nis, { taux: val, nom: (r.Commune||'').trim() });
+    map.set(nis, {
+      taux: val,
+      nom: (r.Commune||'').trim(),
+      denom: (r['Dénominateur']||'').trim(),   // nb d'exclus du chômage (peut être "<10")
+      num:   (r['Numérateur']||'').trim()      // nb qui se sont tournés vers le CPAS
+    });
   });
   return map;
 }
 
 /* ---------- Construction de la carte ---------- */
 let svg, gMap, projection, path, zoom, features, tip;
-let nodeByFeature, hlPath;
+let nodeByFeature, hlPath, cityLayer;
 let VBW, VBH;   // dimensions logiques (viewBox), fixes — indépendantes des pixels
 
 function init(geo, data){
@@ -353,7 +395,9 @@ function init(geo, data){
   /* Attache les données à chaque feature */
   features.forEach(f => {
     const rec = data.get(String(f.properties.nis));
-    f.properties._taux = rec ? rec.taux : null;   // null = n/a
+    f.properties._taux  = rec ? rec.taux : null;   // null = n/a
+    f.properties._denom = rec ? rec.denom : '';
+    f.properties._num   = rec ? rec.num : '';
   });
 
   /* Dessin des communes */
@@ -371,7 +415,7 @@ function init(geo, data){
       .on('mouseover', (e,d) => { if(!isTouch){ highlight(e.currentTarget); showTip(d); } })
       .on('mouseout',  ()   => { if(!isTouch){ clearHighlight(); hideTip(); } })
       .on('click',     (e,d) => { if(isTouch){ highlight(e.currentTarget); showTip(d); } })
-      .on('focus',     (e,d) => { highlight(e.currentTarget); showTip(d); })
+      .on('focus',     (e,d) => { if(e.currentTarget.matches(':focus-visible')){ highlight(e.currentTarget); showTip(d); } })
       .on('blur',      ()    => { clearHighlight(); hideTip(); });
 
   /* Calque de surbrillance : un unique tracé, ajouté APRÈS toutes les communes,
@@ -379,12 +423,44 @@ function init(geo, data){
      recouvert par une commune voisine, quelle que soit la commune survolée. */
   hlPath = gMap.append('path').attr('class','hl-overlay');
 
+  /* Repères villes : posés au centroïde de chaque commune, dans un groupe
+     au-dessus des communes et du survol. Non interactifs (le survol des
+     communes passe « à travers »). */
+  const cityGroup = gMap.append('g').attr('class','cities');
+  const featByName = new Map(features.map(f => [f.properties.name_fr, f]));
+  CITIES.forEach(city => {
+    const f = featByName.get(city.n);
+    if(!f) return;
+    const [cx, cy] = path.centroid(f);
+    if(!isFinite(cx) || !isFinite(cy)) return;
+    const g = cityGroup.append('g').attr('class','city');
+    g.node().__pos = `translate(${cx},${cy})`;
+    g.attr('transform', g.node().__pos);
+    g.append('circle').attr('class','city-dot').attr('r',2.6);
+    g.append('text').attr('class','city-label')
+      .attr('x', city.dx).attr('y', city.dy)
+      .attr('text-anchor', city.anchor || 'start')
+      .text(city.n);
+  });
+  cityLayer = cityGroup;
+
   /* Zoom / pan */
   zoom = d3.zoom()
     .scaleExtent([1, 12])
     .translateExtent([[0,0],[VBW,VBH]])
     .on('start', () => gMap.classed('zooming', true))
-    .on('zoom', (e) => { gMap.attr('transform', e.transform); if(currentFeature) positionTip(currentFeature); })
+    .on('zoom', (e) => {
+      gMap.attr('transform', e.transform);
+      /* Les repères villes suivent la carte en position mais gardent une
+         taille d'écran constante : on annule l'échelle du zoom sur chaque repère. */
+      if(cityLayer){
+        const k = e.transform.k;
+        cityLayer.selectAll('g.city').attr('transform', function(){
+          return `${this.__pos} scale(${1/k})`;
+        });
+      }
+      if(currentFeature) positionTip(currentFeature);
+    })
     .on('end', () => gMap.classed('zooming', false));
   svg.call(zoom);
   if(isTouch) svg.on('wheel.zoom', null);   // ne pas capter le scroll de l'article sur mobile
@@ -408,12 +484,21 @@ let currentFeature = null;
 function tipHTML(d){
   const p = d.properties;
   const prov = p.prov_fr || (p.reg_fr === 'Région de Bruxelles-Capitale' ? 'Bruxelles-Capitale' : '');
+  const num = esc(p._num || '—');
+  const denom = esc(p._denom || '—');
+  const breakdown =
+    `<div class="tip-breakdown">
+       <div class="tip-bd-row"><span class="tip-bd-val">${denom}</span><span class="tip-bd-lbl">exclus du chômage</span></div>
+       <div class="tip-bd-row"><span class="tip-bd-val">${num}</span><span class="tip-bd-lbl">vers le CPAS</span></div>
+     </div>`;
+
   if(p._taux === null){
     return `<div class="tip-body">
       <div class="tip-eyebrow">${esc(prov)}</div>
       <div class="tip-name">${esc(p.name_fr)}</div>
       <div class="tip-figure"><span class="tip-value na">Non calculable</span></div>
-      <div class="tip-note">Moins de 10 personnes exclues du chômage dans cette commune : le taux ne peut pas être calculé de façon fiable.</div>
+      <div class="tip-note">Moins de 10 personnes exclues du chômage : le taux n'est pas calculé de façon fiable.</div>
+      ${breakdown}
     </div>`;
   }
   return `<div class="tip-body">
@@ -421,6 +506,7 @@ function tipHTML(d){
     <div class="tip-name">${esc(p.name_fr)}</div>
     <div class="tip-figure"><span class="tip-value">${fmtPct(p._taux)}&nbsp;%</span>
       <span class="tip-unit">des personnes exclues<br>se sont tournées vers le CPAS</span></div>
+    ${breakdown}
   </div>`;
 }
 
@@ -557,7 +643,7 @@ function buildSrTable(){
       const p = f.properties;
       const prov = p.prov_fr || (p.reg_fr==='Région de Bruxelles-Capitale' ? 'Bruxelles-Capitale' : '—');
       const val = p._taux === null ? 'Non calculable (moins de 10 personnes)' : fmtPct(p._taux) + ' %';
-      return `<tr><td>${esc(p.name_fr)}</td><td>${esc(prov)}</td><td>${val}</td></tr>`;
+      return `<tr><td>${esc(p.name_fr)}</td><td>${esc(prov)}</td><td>${esc(p._denom||'—')}</td><td>${esc(p._num||'—')}</td><td>${val}</td></tr>`;
     });
   body.innerHTML = rows.join('');
 }
