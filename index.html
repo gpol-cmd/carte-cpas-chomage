@@ -338,6 +338,7 @@ const isTouch = matchMedia('(hover: none)').matches ||
 const ZOOM_HINT_DESKTOP = 'Maintenez Ctrl (⌘ sur Mac) + molette pour zoomer';
 const ZOOM_HINT_TOUCH = 'Utilisez deux doigts pour zoomer et déplacer la carte';
 let zoomHintTimer;
+let touchHintTimer;
 function showZoomHint(text){
   const el = document.getElementById('zoom-hint');
   if(!el) return;
@@ -523,12 +524,25 @@ function init(geo, data){
         return false;
       }
       /* Un seul doigt = on laisse la page défiler normalement ; il faut deux
-         doigts pour zoomer/déplacer la carte. */
+         doigts pour zoomer/déplacer la carte. Les deux doigts n'arrivent
+         jamais exactement en même temps (le premier touchstart voit souvent
+         1 seul doigt une fraction de seconde avant le second) : on attend
+         un court instant avant d'afficher le message, pour laisser la
+         chance à un second doigt d'arriver sans déclencher le message. */
       if(event.type === 'touchstart'){
-        if(event.touches.length < 2){ showZoomHint(ZOOM_HINT_TOUCH); return false; }
+        if(event.touches.length >= 2){ clearTimeout(touchHintTimer); return true; }
+        clearTimeout(touchHintTimer);
+        touchHintTimer = setTimeout(() => showZoomHint(ZOOM_HINT_TOUCH), 180);
+        return false;
+      }
+      if(event.type === 'touchmove'){
+        if(event.touches.length >= 2){ clearTimeout(touchHintTimer); return true; }
+        return false;
+      }
+      if(event.type === 'touchend' || event.type === 'touchcancel'){
+        clearTimeout(touchHintTimer);
         return true;
       }
-      if(event.type === 'touchmove') return event.touches.length >= 2;
       return !event.button;   // clic gauche uniquement pour le glisser-déposer
     })
     .on('start', () => gMap.classed('zooming', true))
