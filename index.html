@@ -466,7 +466,17 @@ function init(geo, data){
       .each(function(d){ nodeByFeature.set(d, this); })
       .on('mouseover', (e,d) => { if(!isTouch){ highlight(e.currentTarget); showTip(d); } })
       .on('mouseout',  ()   => { if(!isTouch){ clearHighlight(); hideTip(); } })
-      .on('click',     (e,d) => { if(isTouch){ highlight(e.currentTarget); showTip(d); } })
+      .on('touchend',  (e,d) => {
+        if(!isTouch) return;
+        /* Ouvre la fiche seulement si le doigt n'a pas bougé (vrai tap),
+           pas après un glissé. On ne dépend pas de l'événement 'click'
+           synthétique du navigateur, qui peut ne pas se déclencher quand
+           d3.zoom écoute aussi le tactile sur la carte. */
+        const t = e.changedTouches && e.changedTouches[0];
+        if(!t) return;
+        const moved = Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY);
+        if(moved < 10){ highlight(e.currentTarget); showTip(d); }
+      })
       .on('focus',     (e,d) => { if(e.currentTarget.matches(':focus-visible')){ highlight(e.currentTarget); showTip(d); } })
       .on('blur',      ()    => { clearHighlight(); hideTip(); });
 
