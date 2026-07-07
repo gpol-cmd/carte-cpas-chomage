@@ -344,7 +344,7 @@ function showZoomHint(text){
   el.textContent = text;
   el.classList.add('show');
   clearTimeout(zoomHintTimer);
-  zoomHintTimer = setTimeout(() => el.classList.remove('show'), 1400);
+  zoomHintTimer = setTimeout(() => el.classList.remove('show'), 850);
 }
 
 function fmtPct(v){ return (v*100).toLocaleString('fr-BE',{maximumFractionDigits:0}); }
@@ -495,10 +495,24 @@ function init(geo, data){
   });
   cityLayer = cityGroup;
 
+  /* Empêche le navigateur de zoomer la PAGE entière (Ctrl+molette est un
+     raccourci navigateur natif) pendant qu'on zoome la carte. Doit être un
+     listener non-passif, posé avant d3.zoom(), pour que preventDefault()
+     ait un effet. */
+  svg.node().addEventListener('wheel', (event) => {
+    if(event.ctrlKey || event.metaKey) event.preventDefault();
+  }, {passive:false});
+
   /* Zoom / pan */
   zoom = d3.zoom()
     .scaleExtent([1, 12])
     .translateExtent([[0,0],[VBW,VBH]])
+    /* Par défaut, D3 multiplie par 10 la vitesse de zoom molette dès que
+       Ctrl est enfoncé (il suppose qu'il s'agit d'un pincement de trackpad
+       à amplifier). Ici Ctrl est notre modificateur volontaire pour
+       autoriser le zoom, pas un pincement — on retire ce x10 pour un zoom
+       à vitesse normale, identique à un simple défilement. */
+    .wheelDelta((event) => -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002))
     .filter((event) => {
       /* Molette seule = on laisse l'article défiler ; il faut Ctrl/Cmd + molette
          pour zoomer la carte (comme un pincement de trackpad, qui envoie
