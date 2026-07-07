@@ -558,7 +558,7 @@ function init(geo, data){
        petits deltas (< 50). */
     .wheelDelta((event) => {
       const base = -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002);
-      return (event.ctrlKey && Math.abs(event.deltaY) < 50) ? base * 10 : base;
+      return (event.ctrlKey && Math.abs(event.deltaY) < 50) ? base * 5 : base;
     })
     .filter((event) => {
       /* Molette seule = on laisse l'article défiler ; il faut Ctrl/Cmd + molette
