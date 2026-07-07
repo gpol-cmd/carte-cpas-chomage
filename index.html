@@ -122,9 +122,9 @@
   #map .city{pointer-events:none}
   #map .city-dot{fill:#ffffff;stroke:#40474f;stroke-width:.7px}
   #map .city-label{
-    font-family:var(--sans);font-weight:600;font-size:11px;
+    font-family:var(--sans);font-weight:600;font-size:13px;
     fill:#2a303c;
-    paint-order:stroke;stroke:rgba(255,255,255,.9);stroke-width:2.6px;stroke-linejoin:round;
+    paint-order:stroke;stroke:rgba(255,255,255,.9);stroke-width:2.8px;stroke-linejoin:round;
   }
   @media (prefers-color-scheme:dark){
     #map .city-dot{fill:#ffffff;stroke:#0a1a28}
@@ -236,15 +236,15 @@
     </div>
   </div>
 
-  <div class="content">
-    <div class="map-shell" id="shell">
-      <div class="loading" id="loading">Chargement de la carte…</div>
-      <div class="zoom-ctrl" id="zoom-ctrl" style="display:none">
-        <button id="zoom-in" aria-label="Zoomer">+</button>
-        <button id="zoom-out" aria-label="Dézoomer">−</button>
-      </div>
+  <div class="map-shell" id="shell">
+    <div class="loading" id="loading">Chargement de la carte…</div>
+    <div class="zoom-ctrl" id="zoom-ctrl" style="display:none">
+      <button id="zoom-in" aria-label="Zoomer">+</button>
+      <button id="zoom-out" aria-label="Dézoomer">−</button>
     </div>
+  </div>
 
+  <div class="content">
     <div class="legend" id="legend" style="display:none">
       <div class="legend-title">Part des personnes exclues qui se sont tournées vers le CPAS</div>
       <div class="legend-scale" id="legend-scale"></div>
@@ -455,7 +455,7 @@ function init(geo, data){
     const g = cityGroup.append('g').attr('class','city');
     g.node().__pos = `translate(${cx},${cy})`;
     g.attr('transform', g.node().__pos);
-    g.append('circle').attr('class','city-dot').attr('r',2.6);
+    g.append('circle').attr('class','city-dot').attr('r',3);
     g.append('text').attr('class','city-label')
       .attr('x', city.dx).attr('y', city.dy)
       .attr('text-anchor', city.anchor || 'start')
