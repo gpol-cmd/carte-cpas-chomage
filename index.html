@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
+<script>if(window.parent!==window)document.documentElement.className+=' embedded';</script>
 <title>Exclusions du chômage et recours au CPAS, par commune</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -108,6 +109,9 @@
   /* ---------- Carte ---------- */
   .map-shell{position:relative;margin:10px 0 0}
   #map{width:100%;height:auto;display:block;max-height:78vh}
+  /* En embed iframe : plus de vh (qui crée une boucle de redimensionnement).
+     La carte prend sa hauteur naturelle selon son ratio (aspect-ratio du viewBox). */
+  html.embedded #map{max-height:none;aspect-ratio:1000/620}
   #map path{stroke:var(--stroke);stroke-width:.4px;stroke-linejoin:round;cursor:pointer}
   #map g.communes{will-change:transform}
   /* Pendant le geste de zoom/pan uniquement : rendu allégé (moins d'anti-crénelage,
@@ -202,7 +206,7 @@
     .content{max-width:860px}
     .title{font-size:25px}
     .subtitle{font-size:15px}
-    #map{max-height:92vh}
+    html:not(.embedded) #map{max-height:92vh}
     .tip{width:270px;font-size:13px}
     .tip-name{font-size:18px}
     .tip-value{font-size:27px}
@@ -693,6 +697,7 @@ function normalize(s){ return String(s).toLowerCase()
    ============================================================ */
 (function(){
   if(window.parent === window) return;   // page ouverte seule, pas en iframe
+  document.documentElement.classList.add('embedded');   // (déjà posé tôt dans le <head>)
   function sendHeight(){
     const h = document.documentElement.scrollHeight;
     window.parent.postMessage({ type:'cpas-map:height', height:h }, '*');
