@@ -276,10 +276,12 @@ const LEGEND_LABELS = ['0','10','20','30','40','50','60',''];  // ticks aux fron
 const color = d3.scaleThreshold().domain(THRESHOLDS).range(COLORS);
 
 /* Grandes villes servant de repères (nom_fr tel qu'il figure dans le GeoJSON).
-   Le point et le libellé sont posés au centroïde de la commune correspondante.
-   'dx' permet de décaler le libellé pour éviter les chevauchements de texte. */
+   Par défaut, le point est posé au centroïde de la commune correspondante.
+   Si 'lon'/'lat' sont précisés, ils priment (utile quand la forme de la
+   commune décale trop le centroïde du vrai centre-ville, ex. Bruxelles).
+   'dx'/'dy' décalent le libellé pour éviter les chevauchements de texte. */
 const CITIES = [
-  {n:'Bruxelles',  dx:7,  dy:3},
+  {n:'Bruxelles',  dx:7,  dy:3, lon:4.3517, lat:50.8467},   // Grand-Place, vieux centre
   {n:'Anvers',     dx:7,  dy:3},
   {n:'Gand',       dx:7,  dy:3},
   {n:'Bruges',     dx:7,  dy:3},
@@ -431,7 +433,7 @@ function init(geo, data){
   CITIES.forEach(city => {
     const f = featByName.get(city.n);
     if(!f) return;
-    const [cx, cy] = path.centroid(f);
+    const [cx, cy] = (city.lon !== undefined) ? projection([city.lon, city.lat]) : path.centroid(f);
     if(!isFinite(cx) || !isFinite(cy)) return;
     const g = cityGroup.append('g').attr('class','city');
     g.node().__pos = `translate(${cx},${cy})`;
