@@ -524,51 +524,57 @@ function init(geo, data){
     if(event.ctrlKey || event.metaKey) event.preventDefault();
   }, {passive:false});
 
+  /* Message pédagogique tactile : géré par nos propres écouteurs, car quand
+     d3.zoom refuse un geste au touchstart (un seul doigt), il ne consulte
+     plus son filtre pendant le glissement — impossible d'y détecter le
+     mouvement. Écouteurs passifs : ils n'interfèrent pas avec le défilement. */
+  svg.node().addEventListener('touchstart', (ev) => {
+    if(ev.touches.length === 1){
+      touchStartX = ev.touches[0].clientX;
+      touchStartY = ev.touches[0].clientY;
+      touchHintShown = false;
+    } else {
+      touchHintShown = true;   // deux doigts : jamais de message pour ce geste
+    }
+  }, {passive:true});
+  svg.node().addEventListener('touchmove', (ev) => {
+    if(ev.touches.length !== 1 || touchHintShown) return;
+    const t = ev.touches[0];
+    if(Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY) > 10){
+      showZoomHint(ZOOM_HINT_TOUCH);
+      touchHintShown = true;
+    }
+  }, {passive:true});
+
   /* Zoom / pan */
   zoom = d3.zoom()
     .scaleExtent([1, 12])
     .translateExtent([[0,0],[VBW,VBH]])
-    /* Par défaut, D3 multiplie par 10 la vitesse de zoom molette dès que
-       Ctrl est enfoncé (il suppose qu'il s'agit d'un pincement de trackpad
-       à amplifier). Ici Ctrl est notre modificateur volontaire pour
-       autoriser le zoom, pas un pincement — on retire ce x10 pour un zoom
-       à vitesse normale, identique à un simple défilement. */
-    .wheelDelta((event) => -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002))
+    /* Vitesse molette : D3 amplifie x10 dès que Ctrl est enfoncé, car il
+       suppose un pincement de trackpad (petits deltas à réamplifier). Chez
+       nous Ctrl+molette de souris est un geste volontaire (grands deltas,
+       ~100 par cran) qui devenait bien trop rapide avec ce x10. On ne
+       réamplifie donc que les VRAIS pincements, reconnaissables à leurs
+       petits deltas (< 50). */
+    .wheelDelta((event) => {
+      const base = -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002);
+      return (event.ctrlKey && Math.abs(event.deltaY) < 50) ? base * 10 : base;
+    })
     .filter((event) => {
       /* Molette seule = on laisse l'article défiler ; il faut Ctrl/Cmd + molette
-         pour zoomer la carte (comme un pincement de trackpad, qui envoie
-         naturellement ctrlKey=true). */
+         pour zoomer la carte (le pincement de trackpad envoie naturellement
+         ctrlKey=true, il passe donc aussi). */
       if(event.type === 'wheel'){
         if(event.ctrlKey || event.metaKey) return true;
         showZoomHint(ZOOM_HINT_DESKTOP);
         return false;
       }
-      /* Un seul doigt = on laisse la page défiler normalement ; il faut deux
-         doigts pour zoomer/déplacer la carte. Le message ne doit apparaître
-         que sur un vrai glissé (le doigt bouge), jamais sur un simple tap
-         (qui doit ouvrir la fiche de la commune) — on suit donc le
-         déplacement réel plutôt qu'un simple délai. */
-      if(event.type === 'touchstart'){
-        if(event.touches.length >= 2){ touchHintShown = false; return true; }
-        touchStartX = event.touches[0].clientX;
-        touchStartY = event.touches[0].clientY;
-        touchHintShown = false;
-        return false;
+      /* Tactile : deux doigts pour zoomer/déplacer, un doigt laisse la
+         page défiler (le message est géré par les écouteurs dédiés ci-dessus). */
+      if(event.type === 'touchstart' || event.type === 'touchmove'){
+        return event.touches.length >= 2;
       }
-      if(event.type === 'touchmove'){
-        if(event.touches.length >= 2){ return true; }
-        const t = event.touches[0];
-        const moved = Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY);
-        if(!touchHintShown && moved > 10){
-          showZoomHint(ZOOM_HINT_TOUCH);
-          touchHintShown = true;
-        }
-        return false;
-      }
-      if(event.type === 'touchend' || event.type === 'touchcancel'){
-        touchHintShown = false;
-        return true;
-      }
+      if(event.type === 'touchend' || event.type === 'touchcancel') return true;
       return !event.button;   // clic gauche uniquement pour le glisser-déposer
     })
     .on('start', () => gMap.classed('zooming', true))
