@@ -751,7 +751,7 @@ function buildSearch(){
 function focusCommune(f){
   const [[x0,y0],[x1,y1]] = path.bounds(f);
   const dx = x1-x0, dy = y1-y0, cx = (x0+x1)/2, cy = (y0+y1)/2;
-  const scale = Math.max(1, Math.min(12, 0.35 / Math.max(dx/VBW, dy/VBH)));
+  const scale = Math.max(1, Math.min(12, 0.7 / Math.max(dx/VBW, dy/VBH)));
   const tx = VBW/2 - scale*cx, ty = VBH/2 - scale*cy;
   svg.transition().duration(600)
     .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale))
@@ -809,8 +809,6 @@ function normalize(s){ return String(s).toLowerCase()
   }
   if('ResizeObserver' in window){
     new ResizeObserver(sendHeight).observe(document.documentElement);
-  } else {
-    window.addEventListener('resize', sendHeight);
   }
   window.addEventListener('resize', sendHeight);
   window.addEventListener('load', sendHeight);
