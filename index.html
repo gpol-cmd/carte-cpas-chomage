@@ -683,5 +683,29 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g,
 function normalize(s){ return String(s).toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
 </script>
+
+<script>
+/* ============================================================
+   Signal de hauteur pour un embed en <iframe> auto-ajustable
+   (ex. article RTBF). N'a aucun effet si la page n'est pas dans
+   un iframe (window.parent === window) — sans risque en local
+   ou sur GitHub Pages seul.
+   ============================================================ */
+(function(){
+  if(window.parent === window) return;   // page ouverte seule, pas en iframe
+  function sendHeight(){
+    const h = document.documentElement.scrollHeight;
+    window.parent.postMessage({ type:'cpas-map:height', height:h }, '*');
+  }
+  if('ResizeObserver' in window){
+    new ResizeObserver(sendHeight).observe(document.documentElement);
+  } else {
+    window.addEventListener('resize', sendHeight);
+    setInterval(sendHeight, 500);
+  }
+  window.addEventListener('load', sendHeight);
+  sendHeight();
+})();
+</script>
 </body>
 </html>
