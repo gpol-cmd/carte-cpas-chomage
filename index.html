@@ -15,7 +15,7 @@
 
 <style>
   :root{
-    --bg:#f7f8fb;
+    --bg:#f5f6fa;
     --panel:#ffffff;
     --title:#2a303c;
     --subtitle:#383f4e;
@@ -240,7 +240,7 @@
   <div class="content">
     <div class="head">
       <div class="title">Après l'exclusion du chômage, le recours au CPAS</div>
-      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage qui se sont tournées vers le CPAS, par commune. Chiffres cumulés de janvier à juillet 2026 (vague 3 sur 6).</div>
+      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage qui se sont tournées vers le CPAS, par commune. Chiffres arrêtés au 1<sup>er</sup> juillet 2026 (vague 3 sur 6 des fins de droit).</div>
     </div>
 
     <div class="search-wrap">
@@ -275,7 +275,7 @@
       <a href="https://www.onem.be/statistiques/reforme-de-la-reglementation-du-chomage-chiffres" target="_blank" rel="noopener">ONEM</a>
       (exclusions du droit aux allocations de chômage) et
       <a href="https://www.mi-is.be/fr/etudes-publications-statistiques/exclus-du-chomage" target="_blank" rel="noopener">SPP Intégration sociale</a>
-      (recours au CPAS).
+      (recours au CPAS/OCMW).
     </div>
   </div>
 
@@ -338,7 +338,7 @@ const isTouch = matchMedia('(hover: none)').matches ||
 const ZOOM_HINT_DESKTOP = 'Maintenez Ctrl (⌘ sur Mac) + molette pour zoomer';
 const ZOOM_HINT_TOUCH = 'Utilisez deux doigts pour zoomer et déplacer la carte';
 let zoomHintTimer;
-let touchHintTimer;
+let touchStartX = 0, touchStartY = 0, touchHintShown = false;
 function showZoomHint(text){
   const el = document.getElementById('zoom-hint');
   if(!el) return;
@@ -524,23 +524,29 @@ function init(geo, data){
         return false;
       }
       /* Un seul doigt = on laisse la page défiler normalement ; il faut deux
-         doigts pour zoomer/déplacer la carte. Les deux doigts n'arrivent
-         jamais exactement en même temps (le premier touchstart voit souvent
-         1 seul doigt une fraction de seconde avant le second) : on attend
-         un court instant avant d'afficher le message, pour laisser la
-         chance à un second doigt d'arriver sans déclencher le message. */
+         doigts pour zoomer/déplacer la carte. Le message ne doit apparaître
+         que sur un vrai glissé (le doigt bouge), jamais sur un simple tap
+         (qui doit ouvrir la fiche de la commune) — on suit donc le
+         déplacement réel plutôt qu'un simple délai. */
       if(event.type === 'touchstart'){
-        if(event.touches.length >= 2){ clearTimeout(touchHintTimer); return true; }
-        clearTimeout(touchHintTimer);
-        touchHintTimer = setTimeout(() => showZoomHint(ZOOM_HINT_TOUCH), 180);
+        if(event.touches.length >= 2){ touchHintShown = false; return true; }
+        touchStartX = event.touches[0].clientX;
+        touchStartY = event.touches[0].clientY;
+        touchHintShown = false;
         return false;
       }
       if(event.type === 'touchmove'){
-        if(event.touches.length >= 2){ clearTimeout(touchHintTimer); return true; }
+        if(event.touches.length >= 2){ return true; }
+        const t = event.touches[0];
+        const moved = Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY);
+        if(!touchHintShown && moved > 10){
+          showZoomHint(ZOOM_HINT_TOUCH);
+          touchHintShown = true;
+        }
         return false;
       }
       if(event.type === 'touchend' || event.type === 'touchcancel'){
-        clearTimeout(touchHintTimer);
+        touchHintShown = false;
         return true;
       }
       return !event.button;   // clic gauche uniquement pour le glisser-déposer
@@ -779,10 +785,21 @@ function normalize(s){ return String(s).toLowerCase()
     new ResizeObserver(sendHeight).observe(document.documentElement);
   } else {
     window.addEventListener('resize', sendHeight);
-    setInterval(sendHeight, 500);
   }
+  window.addEventListener('resize', sendHeight);
   window.addEventListener('load', sendHeight);
+
+  /* Un premier postMessage peut arriver avant que le script du CMS n'ait
+     fini de s'exécuter et de se mettre à l'écoute — dans ce cas le message
+     est perdu sans espoir de rattrapage. On renvoie donc la hauteur
+     plusieurs fois pendant les premières secondes, pour garantir qu'au
+     moins un envoi arrive après que le parent soit prêt. */
   sendHeight();
+  let n = 0;
+  const retry = setInterval(() => {
+    sendHeight();
+    if(++n >= 20) clearInterval(retry);   // ~6 s à intervalles de 300 ms
+  }, 300);
 })();
 </script>
 </body>
