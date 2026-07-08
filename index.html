@@ -146,16 +146,16 @@
   .zoom-ctrl button:hover{background:#e8eaee}
 
   .zoom-hint{
-    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    background:var(--tip-bg);color:#fff;
-    padding:10px 18px;border-radius:24px;
-    font-family:var(--sans);font-size:13px;font-weight:600;text-align:center;
-    box-shadow:rgba(0,0,0,.1) 0 4px 7px 2px;
+    position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
+    background:#ffffff;color:#1c2126;
+    padding:13px 24px;border-radius:26px;
+    font-family:var(--sans);font-size:15px;font-weight:700;text-align:center;
+    box-shadow:rgba(0,0,0,.18) 0 6px 16px 2px, rgba(0,0,0,.08) 0 2px 4px;
     opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:50;
     max-width:82%;
   }
   .zoom-hint.show{opacity:1}
-  @media (max-width:600px){.zoom-hint{font-size:12px;padding:9px 14px}}
+  @media (max-width:600px){.zoom-hint{font-size:13.5px;padding:11px 18px}}
 
   /* ---------- Fiche (tooltip) ---------- */
   .tip{
@@ -751,7 +751,7 @@ function buildSearch(){
 function focusCommune(f){
   const [[x0,y0],[x1,y1]] = path.bounds(f);
   const dx = x1-x0, dy = y1-y0, cx = (x0+x1)/2, cy = (y0+y1)/2;
-  const scale = Math.max(1, Math.min(12, 0.35 / Math.max(dx/VBW, dy/VBH)));
+  const scale = Math.max(1, Math.min(12, 0.7 / Math.max(dx/VBW, dy/VBH)));
   const tx = VBW/2 - scale*cx, ty = VBH/2 - scale*cy;
   svg.transition().duration(600)
     .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale))
