@@ -240,7 +240,7 @@
   <div class="content">
     <div class="head">
       <div class="title">Après l'exclusion du chômage, le recours au CPAS</div>
-      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage qui se sont tournées vers le CPAS, par commune. Chiffres arrêtés au 1<sup>er</sup> juillet 2026 (vague 3 sur 6 des fins de droit).</div>
+      <div class="subtitle" id="subtitle">Part des personnes exclues du chômage entre janvier et mai 2026 qui ont obtenu un revenu d'intégration (RIS), par commune. Chiffres arrêtés au 1<sup>er</sup> juillet 2026, avant la quatrième vague de fins de droit (sur six).</div>
     </div>
 
     <div class="search-wrap">
@@ -263,7 +263,7 @@
 
   <div class="content">
     <div class="legend" id="legend" style="display:none">
-      <div class="legend-title">Part des personnes exclues qui se sont tournées vers le CPAS</div>
+      <div class="legend-title">Part des exclus ayant obtenu un RIS</div>
       <div class="legend-scale" id="legend-scale"></div>
       <div style="text-align:center">
         <span class="legend-na"><span class="legend-na-sw"></span>Moins de 10 personnes concernées — taux non calculable</span>
@@ -275,15 +275,15 @@
       <a href="https://www.onem.be/statistiques/reforme-de-la-reglementation-du-chomage-chiffres" target="_blank" rel="noopener">ONEM</a>
       (exclusions du droit aux allocations de chômage) et
       <a href="https://www.mi-is.be/fr/etudes-publications-statistiques/exclus-du-chomage" target="_blank" rel="noopener">SPP Intégration sociale</a>
-      (recours au CPAS/OCMW).
+      (accès au revenu d'intégration).
     </div>
   </div>
 
   <div class="sr-only">
   <h2>Liste des communes et taux de recours au CPAS après exclusion du chômage</h2>
   <table id="sr-table">
-    <caption>Équivalent textuel de la carte : pour chaque commune belge, part des personnes exclues du chômage qui se sont tournées vers le CPAS. « Non calculable » signifie que moins de 10 personnes étaient concernées.</caption>
-    <thead><tr><th scope="col">Commune</th><th scope="col">Province</th><th scope="col">Exclus du chômage</th><th scope="col">Vers le CPAS</th><th scope="col">Taux</th></tr></thead>
+    <caption>Équivalent textuel de la carte : pour chaque commune belge, part des personnes exclues du chômage qui ont obtenu un revenu d'intégration (RIS). « Non calculable » signifie que moins de 10 personnes étaient concernées.</caption>
+    <thead><tr><th scope="col">Commune</th><th scope="col">Province</th><th scope="col">Exclus du chômage</th><th scope="col">Ont obtenu un RIS</th><th scope="col">Taux</th></tr></thead>
     <tbody id="sr-table-body"></tbody>
   </table>
   </div>
@@ -616,8 +616,8 @@ function tipHTML(d){
   const denom = esc(p._denom || '—');
   const breakdown =
     `<div class="tip-breakdown">
-       <div class="tip-bd-row"><span class="tip-bd-val">${denom}</span><span class="tip-bd-lbl">exclus du chômage</span></div>
-       <div class="tip-bd-row"><span class="tip-bd-val">${num}</span><span class="tip-bd-lbl">vers le CPAS</span></div>
+       <div class="tip-bd-row"><span class="tip-bd-val">${denom}</span><span class="tip-bd-lbl">personnes exclues du chômage (ONEM)</span></div>
+       <div class="tip-bd-row"><span class="tip-bd-val">${num}</span><span class="tip-bd-lbl">ont obtenu un revenu d'intégration (SPP IS)</span></div>
      </div>`;
 
   if(p._taux === null){
@@ -633,7 +633,7 @@ function tipHTML(d){
     <div class="tip-eyebrow">${esc(prov)}</div>
     <div class="tip-name">${esc(p.name_fr)}</div>
     <div class="tip-figure"><span class="tip-value">${fmtPct(p._taux)}&nbsp;%</span>
-      <span class="tip-unit">des personnes exclues<br>se sont tournées vers le CPAS</span></div>
+      <span class="tip-unit">des personnes exclues<br>ont obtenu un revenu d'intégration</span></div>
     ${breakdown}
   </div>`;
 }
@@ -781,7 +781,7 @@ function ariaLabel(d){
   const prov = p.prov_fr || (p.reg_fr==='Région de Bruxelles-Capitale' ? 'Bruxelles-Capitale' : '');
   const val = p._taux === null
     ? 'taux non calculable, moins de 10 personnes concernées'
-    : fmtPct(p._taux) + ' pour cent des personnes exclues se sont tournées vers le CPAS';
+    : fmtPct(p._taux) + ' pour cent des personnes exclues ont obtenu un revenu d\'intégration';
   return `${p.name_fr}${prov ? ', ' + prov : ''} : ${val}.`;
 }
 
